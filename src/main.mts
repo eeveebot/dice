@@ -250,7 +250,7 @@ async function registerRollCommand(): Promise<void> {
     instance: '.*', // Match all instances
     channel: '.*', // Match all channels
     user: '.*', // Match all users
-    regex: '^roll ', // Match roll command
+    regex: '^roll\\s+', // Match roll command followed by whitespace
     platformPrefixAllowed: true,
     ratelimit: rateLimitConfig,
   };
