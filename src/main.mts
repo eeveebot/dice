@@ -10,7 +10,7 @@ import { NatsClient, log } from '@eeveebot/libeevee';
 // Record module startup time for uptime tracking
 const moduleStartTime = Date.now();
 
-const rollCommandUUID = '8D4E1F4C-7D9A-4C2B-8F3E-5A7B2C9D1E6F';
+const rollCommandUUID = '8d4e1f4c-7d9a-4c2b-8f3e-5a7b2c9d1e6f';
 const rollCommandDisplayName = 'roll';
 
 // Rate limit configuration interface
