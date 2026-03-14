@@ -24,8 +24,6 @@ interface RateLimitConfig {
 // Dice module configuration interface
 interface DiceConfig {
   ratelimit?: RateLimitConfig;
-  // Throttle time between dice rolls in seconds
-  throttle?: number;
   // Maximum number of dice that can be rolled at once
   maxDice?: number;
   // Maximum number of sides on a die
@@ -113,17 +111,12 @@ await nats.connect();
 const diceConfig = loadDiceConfig();
 
 // Default configuration
-const defaultThrottle = 2; // seconds
 const defaultMaxDice = 64;
 const defaultMaxSides = 65535;
 
 // Use configured values or defaults
-const throttle = diceConfig.throttle ?? defaultThrottle;
 const maxDice = diceConfig.maxDice ?? defaultMaxDice;
 const maxSides = diceConfig.maxSides ?? defaultMaxSides;
-
-// Track last roll time for throttling
-let lastRollTime = 0;
 
 // Utility function to sum an array of numbers
 const sum = (arr: number[]): number => arr.reduce((a, b) => a + b, 0);
@@ -148,10 +141,10 @@ function rollPolyhedra(
   n = Math.round(Math.min(n, maxDice));
   s = Math.round(Math.min(s, maxSides));
   b = Math.round(Math.min(b, maxSides));
-  
+
   if (x < 0) x = -1 * Math.round(Math.min(s, Math.abs(x)));
   else if (x > 0) x = Math.min(s, x);
-  
+
   k = Math.round(Math.min(n, k));
 
   // Build the reply with what we're rolling
@@ -175,7 +168,7 @@ function rollPolyhedra(
       rolled.push(Math.ceil(Math.random() * s));
     }
     keep.push(rolled.shift() as number);
-    
+
     // Prevent infinite loops
     if (keep.length >= maxDice) break;
   }
@@ -199,9 +192,9 @@ function rollFudge(n: number = 4): string {
   n = Math.round(Math.min(n, maxDice));
   const faces = ['-', 'o', '+'];
   const rolled = [...Array(n)].map(() => Math.floor(Math.random() * 3));
-  const values = rolled.map(r => r - 1); // Convert to [-1, 0, 1]
-  
-  return `rolling ${n}dF (${rolled.map(r => faces[r]).join(',')}) ${sum(values)}`;
+  const values = rolled.map((r) => r - 1); // Convert to [-1, 0, 1]
+
+  return `rolling ${n}dF (${rolled.map((r) => faces[r]).join(',')}) ${sum(values)}`;
 }
 
 /**
@@ -213,20 +206,26 @@ function rollFudge(n: number = 4): string {
 function rollORE(n: number = 9, s: number = 10): string {
   n = Math.round(Math.min(n, maxDice));
   s = Math.round(Math.min(s, maxSides));
-  
+
   // Quirk of ORE: you mustn't roll more dice than faces
   n = Math.round(Math.min(n, s));
-  
+
   const counts: Record<number, number> = {};
   [...Array(n)].map(() => {
     const x = Math.ceil(Math.random() * s);
     counts[x] = (counts[x] || 0) + 1;
   });
-  
-  const pairs = Object.entries(counts).map(([face, count]) => [count, parseInt(face)]);
-  pairs.sort((a, b) => (b[0] as number) - (a[0] as number) || (b[1] as number) - (a[1] as number));
-  
-  return `rolling ${n}ore${s} (${pairs.map(p => `${p[0]}x${p[1]}`).join(',')})`;
+
+  const pairs = Object.entries(counts).map(([face, count]) => [
+    count,
+    parseInt(face),
+  ]);
+  pairs.sort(
+    (a, b) =>
+      (b[0] as number) - (a[0] as number) || (b[1] as number) - (a[1] as number)
+  );
+
+  return `rolling ${n}ore${s} (${pairs.map((p) => `${p[0]}x${p[1]}`).join(',')})`;
 }
 
 // Function to register the roll command with the router
@@ -288,24 +287,6 @@ const rollCommandSub = nats.subscribe(
         originalText: data.originalText,
       });
 
-      // Check throttle
-      const currentTime = Date.now();
-      if ((currentTime - lastRollTime) / 1000 < throttle) {
-        const response = {
-          channel: data.channel,
-          network: data.network,
-          instance: data.instance,
-          platform: data.platform,
-          text: 'Wait.',
-          trace: data.trace,
-          type: 'message.outgoing',
-        };
-
-        const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
-        void nats.publish(outgoingTopic, JSON.stringify(response));
-        return;
-      }
-
       // Parse the dice notation
       const args = data.text.trim();
       if (!args) {
@@ -331,7 +312,6 @@ const rollCommandSub = nats.subscribe(
       found = args.match(/^(\d+)$/);
       if (found && Number(found[1]) > 0) {
         rollResult = rollPolyhedra(1, Number(found[1]));
-        lastRollTime = currentTime;
       }
 
       // Handle standard dice notation (e.g., "2d6", "2d6+2", "4d6k1", "3d6!")
@@ -344,21 +324,18 @@ const rollCommandSub = nats.subscribe(
           (found[3] && 1) || 0,
           (found[4] && Number(found[4].substr(1))) || 0
         );
-        lastRollTime = currentTime;
       }
 
       // Handle Fudge dice (e.g., "4dF")
       found = args.match(/^(\d*)dF$/);
       if (found && !rollResult) {
         rollResult = rollFudge(Number(found[1]));
-        lastRollTime = currentTime;
       }
 
       // Handle ORE dice (e.g., "9ore10")
       found = args.match(/^(\d+)ore(\d+)$/i);
       if (found && !rollResult) {
         rollResult = rollORE(Number(found[1]), Number(found[2]));
-        lastRollTime = currentTime;
       }
 
       // Handle "X dY keep Z" format (e.g., "4d6 keep 3")
@@ -371,12 +348,12 @@ const rollCommandSub = nats.subscribe(
           0,
           Number(found[3])
         );
-        lastRollTime = currentTime;
       }
 
       // If no valid format was found, provide help
       if (!rollResult) {
-        rollResult = 'Invalid dice notation. Try formats like: 2d6, 1d20+5, 4d6k3, 4dF, 9ore10';
+        rollResult =
+          'Invalid dice notation. Try formats like: 2d6, 1d20+5, 4d6k3, 4dF, 9ore10';
       }
 
       // Send response
