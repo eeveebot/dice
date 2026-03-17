@@ -26,7 +26,7 @@ initializeSystemMetrics('dice');
 
 // Setup HTTP server for metrics and health checks
 setupHttpServer({
-  port: process.env.HTTP_API_PORT || '9004',
+  port: process.env.HTTP_API_PORT || '9000',
   serviceName: 'dice',
 });
 
