@@ -1,6 +1,6 @@
 {
   "name": "@eeveebot/dice",
-  "version": "1.2.12",
+  "version": "1.2.13",
   "description": "the eevee dice module",
   "keywords": [
     "eevee"
@@ -27,7 +27,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@eeveebot/libeevee": "^3.6.3",
+    "@eeveebot/libeevee": "^3.7.0",
     "irc-framework": "^4.14.0",
     "js-yaml": "^4.1.1",
     "mathjs": "^15.1.1",
