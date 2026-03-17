@@ -7,6 +7,29 @@ import fs from 'node:fs';
 import yaml from 'js-yaml';
 import { NatsClient, log } from '@eeveebot/libeevee';
 
+// Import metrics
+import {
+  initializeSystemMetrics,
+  setupHttpServer,
+  register,
+} from '@eeveebot/libeevee';
+import {
+  recordDiceCommand,
+  recordProcessingTime,
+  recordDiceError,
+  recordNatsPublish,
+  recordNatsSubscribe,
+} from './lib/metrics.mjs';
+
+// Initialize system metrics
+initializeSystemMetrics('dice');
+
+// Setup HTTP server for metrics and health checks
+setupHttpServer({
+  port: process.env.HTTP_API_PORT || '9004',
+  serviceName: 'dice',
+});
+
 // Record module startup time for uptime tracking
 const moduleStartTime = Date.now();
 
@@ -257,6 +280,7 @@ async function registerRollCommand(): Promise<void> {
 
   try {
     await nats.publish('command.register', JSON.stringify(commandRegistration));
+    recordNatsPublish('command.register', 'command_registration');
     log.info('Registered roll command with router', {
       producer: 'dice',
       ratelimit: rateLimitConfig,
@@ -276,6 +300,8 @@ await registerRollCommand();
 const rollCommandSub = nats.subscribe(
   `command.execute.${rollCommandUUID}`,
   (subject, message) => {
+    recordNatsSubscribe(subject);
+    const startTime = Date.now();
     try {
       const data = JSON.parse(message.string());
       log.info('Received command.execute for roll', {
@@ -302,6 +328,10 @@ const rollCommandSub = nats.subscribe(
 
         const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
         void nats.publish(outgoingTopic, JSON.stringify(response));
+        recordNatsPublish(outgoingTopic, 'command_response');
+
+        // Record successful command execution
+        recordDiceCommand(data.platform, data.network, data.channel, 'success');
         return;
       }
 
@@ -369,11 +399,40 @@ const rollCommandSub = nats.subscribe(
 
       const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
       void nats.publish(outgoingTopic, JSON.stringify(response));
+      recordNatsPublish(outgoingTopic, 'command_response');
+
+      // Record successful command execution
+      recordDiceCommand(data.platform, data.network, data.channel, 'success');
     } catch (error) {
       log.error('Failed to process roll command', {
         producer: 'dice',
         error: error,
       });
+
+      // Record failed command execution
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'platform' in error &&
+        'network' in error &&
+        'channel' in error
+      ) {
+        // If we have the data, record with specific details
+        recordDiceCommand(
+          error.platform,
+          error.network,
+          error.channel,
+          'error'
+        );
+      } else {
+        // Otherwise record with unknown details
+        recordDiceCommand('unknown', 'unknown', 'unknown', 'error');
+      }
+      recordDiceError('process_error');
+    } finally {
+      // Record processing time
+      const duration = Date.now() - startTime;
+      recordProcessingTime(duration / 1000); // Convert to seconds
     }
   }
 );
@@ -382,7 +441,8 @@ natsSubscriptions.push(rollCommandSub);
 // Subscribe to control messages for re-registering commands
 const controlSubRegisterCommandRoll = nats.subscribe(
   `control.registerCommands.${rollCommandDisplayName}`,
-  () => {
+  (subject) => {
+    recordNatsSubscribe(subject);
     log.info(
       `Received control.registerCommands.${rollCommandDisplayName} control message`,
       {
@@ -396,7 +456,8 @@ natsSubscriptions.push(controlSubRegisterCommandRoll);
 
 const controlSubRegisterCommandAll = nats.subscribe(
   'control.registerCommands',
-  () => {
+  (subject) => {
+    recordNatsSubscribe(subject);
     log.info('Received control.registerCommands control message', {
       producer: 'dice',
     });
@@ -407,6 +468,7 @@ natsSubscriptions.push(controlSubRegisterCommandAll);
 
 // Subscribe to stats.uptime messages and respond with module uptime
 const statsUptimeSub = nats.subscribe('stats.uptime', (subject, message) => {
+  recordNatsSubscribe(subject);
   try {
     const data = JSON.parse(message.string());
     log.info('Received stats.uptime request', {
@@ -426,6 +488,7 @@ const statsUptimeSub = nats.subscribe('stats.uptime', (subject, message) => {
 
     if (data.replyChannel) {
       void nats.publish(data.replyChannel, JSON.stringify(uptimeResponse));
+      recordNatsPublish(data.replyChannel, 'uptime_response');
     }
   } catch (error) {
     log.error('Failed to process stats.uptime request', {
@@ -435,6 +498,63 @@ const statsUptimeSub = nats.subscribe('stats.uptime', (subject, message) => {
   }
 });
 natsSubscriptions.push(statsUptimeSub);
+
+// Subscribe to stats.emit.request messages and respond with full module stats
+const statsEmitRequestSub = nats.subscribe(
+  'stats.emit.request',
+  (subject, message) => {
+    recordNatsSubscribe(subject);
+    try {
+      const data = JSON.parse(message.string());
+      log.info('Received stats.emit.request', {
+        producer: 'dice',
+        replyChannel: data.replyChannel,
+      });
+
+      // Calculate uptime in milliseconds
+      const uptime = Date.now() - moduleStartTime;
+
+      // Get all prom-client metrics
+      void register
+        .metrics()
+        .then((prometheusMetrics) => {
+          // Get memory usage information
+          const memoryUsage = process.memoryUsage();
+
+          // Send stats back via the ephemeral reply channel
+          const statsResponse = {
+            module: 'dice',
+            stats: {
+              uptime_seconds: Math.floor(uptime / 1000),
+              uptime_formatted: `${Math.floor(uptime / 86400000)}d ${Math.floor((uptime % 86400000) / 3600000)}h ${Math.floor((uptime % 3600000) / 60000)}m ${Math.floor((uptime % 60000) / 1000)}s`,
+              memory_rss_mb: Math.round(memoryUsage.rss / (1024 * 1024)),
+              memory_heap_used_mb: Math.round(
+                memoryUsage.heapUsed / (1024 * 1024)
+              ),
+              prometheus_metrics: prometheusMetrics,
+            },
+          };
+
+          if (data.replyChannel) {
+            void nats.publish(data.replyChannel, JSON.stringify(statsResponse));
+            recordNatsPublish(data.replyChannel, 'stats_response');
+          }
+        })
+        .catch((error) => {
+          log.error('Failed to collect prometheus metrics', {
+            producer: 'dice',
+            error: error,
+          });
+        });
+    } catch (error) {
+      log.error('Failed to process stats.emit.request', {
+        producer: 'dice',
+        error: error,
+      });
+    }
+  }
+);
+natsSubscriptions.push(statsEmitRequestSub);
 
 // Help information for dice commands
 const diceHelp = [
@@ -460,6 +580,7 @@ async function publishHelp(): Promise<void> {
 
   try {
     await nats.publish('help.update', JSON.stringify(helpUpdate));
+    recordNatsPublish('help.update', 'help_update');
     log.info('Published dice help information', {
       producer: 'dice',
     });
@@ -475,7 +596,8 @@ async function publishHelp(): Promise<void> {
 await publishHelp();
 
 // Subscribe to help update requests
-const helpUpdateRequestSub = nats.subscribe('help.updateRequest', () => {
+const helpUpdateRequestSub = nats.subscribe('help.updateRequest', (subject) => {
+  recordNatsSubscribe(subject);
   log.info('Received help.updateRequest message', {
     producer: 'dice',
   });
