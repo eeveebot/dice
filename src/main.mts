@@ -31,6 +31,7 @@ initializeSystemMetrics('dice');
 setupHttpServer({
   port: process.env.HTTP_API_PORT || '9000',
   serviceName: 'dice',
+  natsClients: natsClients,
 });
 
 // Record module startup time for uptime tracking
