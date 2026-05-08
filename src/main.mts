@@ -27,12 +27,7 @@ const metrics = createModuleMetrics('dice');
 // Initialize system metrics
 initializeSystemMetrics('dice');
 
-// Setup HTTP server for metrics and health checks
-setupHttpServer({
-  port: process.env.HTTP_API_PORT || '9000',
-  serviceName: 'dice',
-  natsClients: natsClients,
-});
+
 
 // Record module startup time for uptime tracking
 const moduleStartTime = Date.now();
@@ -48,6 +43,13 @@ interface DiceConfig {
 }
 
 const natsClients: InstanceType<typeof NatsClient>[] = [];
+
+// Setup HTTP server for metrics and health checks
+setupHttpServer({
+  port: process.env.HTTP_API_PORT || '9000',
+  serviceName: 'dice',
+  natsClients: natsClients,
+});
 const natsSubscriptions: Array<Promise<string | boolean>> = [];
 
 // Load configuration at startup
