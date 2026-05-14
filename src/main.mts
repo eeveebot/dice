@@ -18,7 +18,8 @@ import {
   sendChatMessage,
   registerHelp,
   HelpEntry,
-  registerStatsHandlers
+  registerStatsHandlers,
+  NatsSubscriptionResult,
 } from '@eeveebot/libeevee';
 
 // Initialize module-scoped metrics recorder
@@ -50,7 +51,7 @@ setupHttpServer({
   serviceName: 'dice',
   natsClients: natsClients,
 });
-const natsSubscriptions: Array<Promise<string | boolean>> = [];
+const natsSubscriptions: Array<Promise<NatsSubscriptionResult>> = [];
 
 // Load configuration at startup
 const diceConfig = loadModuleConfig<DiceConfig>({});
