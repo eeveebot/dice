@@ -26,7 +26,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@eeveebot/libeevee": "^4.2.0",
+    "@eeveebot/libeevee": "^4.2.1",
     "irc-framework": "^4.14.0",
     "mathjs": "^15.1.1",
     "nats": "^2.29.3",
