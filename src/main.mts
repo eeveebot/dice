@@ -3,6 +3,8 @@
 // Dice module
 // provides D&D style dice rolling functionality
 
+import fs from 'node:fs';
+
 import {
   NatsClient,
   log,
@@ -32,6 +34,7 @@ initializeSystemMetrics('dice');
 
 // Record module startup time for uptime tracking
 const moduleStartTime = Date.now();
+const moduleVersion = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version as string;
 
 const rollCommandUUID = '8d4e1f4c-7d9a-4c2b-8f3e-5a7b2c9d1e6f';
 const rollCommandDisplayName = 'roll';
@@ -265,7 +268,7 @@ const rollCommandSub = nats.subscribe(
 natsSubscriptions.push(rollCommandSub);
 
 // Subscribe to stats.uptime and stats.emit.request
-const statsSubs = registerStatsHandlers({ nats, moduleName: 'dice', startTime: moduleStartTime, metrics });
+const statsSubs = registerStatsHandlers({ nats, moduleName: 'dice', startTime: moduleStartTime, version: moduleVersion, metrics });
 natsSubscriptions.push(...statsSubs);
 
 // Register help information
