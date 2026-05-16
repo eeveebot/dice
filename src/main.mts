@@ -34,7 +34,7 @@ initializeSystemMetrics('dice');
 
 // Record module startup time for uptime tracking
 const moduleStartTime = Date.now();
-const moduleVersion = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version as string;
+const moduleVersion = JSON.parse(fs.readFileSync(new URL('package.json', 'file://' + process.cwd() + '/'), 'utf8')).version as string;
 
 const rollCommandUUID = '8d4e1f4c-7d9a-4c2b-8f3e-5a7b2c9d1e6f';
 const rollCommandDisplayName = 'roll';
