@@ -1,6 +1,6 @@
 {
   "name": "@eeveebot/dice",
-  "version": "1.4.7",
+  "version": "1.4.8",
   "type": "module",
   "description": "the eevee dice module",
   "keywords": [
